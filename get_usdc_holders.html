@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" type="text/css" href="./style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Get USDC Holders</title>
+</head>
+<body>
+  <h1>USDC Holders</h1>
+  <div id="web3-warning" class="hidden warning">
+    Make sure the example app is being served with an HTTP server. <br />
+    Please install MetaMask: <a href="https://metamask.io/">https://metamask.io/</a>
+  </div>
+  <div class="card">
+    <label>USDC Holders: </label>&nbsp;<span id="holders-amount"></span>
+    <br />
+  </div>
+  <div id="holders"></div>
+</body>
+
+<script type="text/javascript" src="./dependencies/handlebars.min.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/ethereum/web3.js@1.2.6/dist/web3.min.js"></script>
+<script type="text/javascript" src="./dependencies/FiatTokenV2.js"></script>
+<script type="text/javascript">
+  window.addEventListener('load', (event) => {
+    const web3Warning = document.getElementById('web3-warning');
+
+    if (typeof window.ethereum === 'undefined') {
+      console.error('Client does not have an active Web3 provider or the example app is not being run from an HTTP server.');
+      console.log('Go here to install MetaMask: https://metamask.io/');
+      alert(
+        'You need a Web3 provider to run this page. ' +
+        'Go here to install MetaMask:\n\n' +
+        'https://metamask.io/'
+      );
+      web3Warning.classList.remove('hidden');
+    }
+
+    const hm = document.getElementById('holders-amount');
+
+    web3 = new Web3(web3.currentProvider);
+    const net = web3.currentProvider.networkVersion;
+
+    // This app only works with Ropsten or Main
+    if (net !== '1' && net !== '3') {
+      console.log(net);
+      alert('Please select the Main or Ropsten network.');
+    }
+
+    const holderListContainer = document.getElementById('holders');
+    const holderListTemplate = Handlebars.compile(`
+      {{#each this}}
+      <div class="card">
+        <h4>{{ address }}</h4>
+        <label>USDC Tokens: </label>&nbsp;<span>{{ balance }}</span>
+      </div>
+    {{/each}}
+    `);
+
+    // Ropsten COMP Contract
+    const proxyAddress = '0x81E4216BcB8032401765820A2014549c93d14E04'
+    const tokenAbi = window.token.abi;
+    const token = new web3.eth.Contract(tokenAbi, proxyAddress);
+
+
+    (async () => {
+      const name = await token.methods.name().call();
+      console.log(name);
+
+      const transfers = await token.getPastEvents('Transfer', {
+        fromBlock: 8627799,
+        toBlock: 'latest'
+      });
+
+      const pastHolders = [];
+      const pastHolderBalanceGets = [];
+
+      transfers.forEach((transfer, i) => {
+        const address = transfer.returnValues.to;
+
+        if (pastHolders.indexOf(address) > -1) return;
+
+        pastHolders.push(address);
+        pastHolderBalanceGets.push(token.methods.balanceOf(address).call());
+        //delegateGets.push(comp.methods.delegates(address).call());
+      });
+
+      const balances = await Promise.all(pastHolderBalanceGets);
+      //const delegates = await Promise.all(delegateGets);
+      const holders = [];
+
+      balances.forEach((balance, i) => {
+        if (balance > 0) {
+          holders.push({
+            address: pastHolders[i],
+            balance: parseFloat(balance / 1e6).toFixed(6)
+          });
+        }
+      });
+
+      holders.sort((a,b) => {
+        return parseFloat(a.balance) < parseFloat(b.balance) ? 1 : -1;
+      });
+
+      console.log(holders);
+      hm.innerText = holders.length;
+
+      holderListContainer.innerHTML = holderListTemplate(holders);
+    })();
+  });
+</script>
+
+</html>

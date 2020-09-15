@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meta Transaction</title>
+</head>
+<body>
+  <h1>Authorizition for Cancle</h1>
+  <h2>Authorizition</h2>
+  <div id="web3-warning" class="hidden warning">
+    Make sure the example app is being served with an HTTP server. <br />
+    Please install MetaMask: <a href="https://metamask.io/">https://metamask.io/</a>
+  </div>
+  <div class="card">
+    <label>Authorizer: </label>&nbsp;<span id="my-address"></span>
+    <br />
+    <label>Nonce: </label>&nbsp;<input id="nonce" type="text" value="0" />
+    <br />
+    <input id="sign" type="submit" value="Authorize for Cancle" />
+  </div>
+  <h2>Post Transaction</h2>
+  <div class="card">
+    <label>Authorizer: </label>&nbsp;<input id="p-from-address" type="text" value="from address"/>
+    <br />
+    <label>Nonce: </label>&nbsp;<input id="p-nonce" type="text" value="0" />
+    <br />
+    <label>Signature: </label>&nbsp;<input id="p-signature" type="text" />
+    <br />
+    <input id="delegate" type="submit" value="Post Transaction" />
+     <br />
+     <label>Transaction Status: </label>&nbsp;<span id="tx-status"></span>
+     <br />
+     <label>Transaction Hash: </label>&nbsp;<span id="tx-hash"></span>
+  </div>
+</body>
+
+<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/ethereum/web3.js@1.2.6/dist/web3.min.js"></script>
+<script type="text/javascript" src="./dependencies/FiatTokenProxy.js"></script>
+<script type="text/javascript" src="./dependencies/FiatTokenV2.js"></script>
+<script type="text/javascript">
+
+  const createMessageSig = (name, version, chainId = 1, contractAdress, authorizer, nonce = 0) => {
+    const types = {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+        { name: 'verifyingContract', type: 'address' },
+      ],
+      // "transferWithAuthorization(address,address,uint256,uint256,uint256,bytes32,uint8,bytes32,bytes32)"
+      CancelAuthorization: [
+        { name: 'authorizer', type: 'address' },
+        { name: 'nonce', type: 'bytes32' },
+      ]
+    };
+
+    const primaryType = 'CancelAuthorization';
+    const domain = { name: name, version: version, chainId, verifyingContract: contractAdress };
+    const message = { authorizer, nonce };
+
+    console.log(domain);
+    console.log(message);
+
+    return JSON.stringify({ types, primaryType, domain, message });
+  };
+
+  window.addEventListener('load', (event) => {
+    const web3Warning = document.getElementById('web3-warning');
+    const myAddress = document.getElementById('my-address');
+    const nonce = document.getElementById('nonce');
+    const sign = document.getElementById('sign');
+
+    const p_signature = document.getElementById('p-signature');
+    const p_fromAddrss = document.getElementById('p-from-address');
+    const p_nonce = document.getElementById('p-nonce');
+
+    const txStatus = document.getElementById('tx-status');
+    const txHash = document.getElementById('tx-hash');
+
+    if (typeof window.ethereum === 'undefined') {
+      console.error('Client does not have an active Web3 provider or the example app is not being run from an HTTP server.');
+      console.log('Go here to install MetaMask: https://metamask.io/');
+      alert(
+        'You need a Web3 provider to run this page. ' +
+        'Go here to install MetaMask:\n\n' +
+        'https://metamask.io/'
+      );
+      web3Warning.classList.remove('hidden');
+    } else {
+      main();
+    }
+
+    async function main() {
+
+      web3 = new Web3(web3.currentProvider);
+
+      const proxyAddress = '0x81E4216BcB8032401765820A2014549c93d14E04';
+      const tokenV2Address = '0x90A0E986003253450Cc1f1CDd7F6ABc9F1e63b95';
+      const proxyAbi = window.proxy.abi;
+      const proxy = new web3.eth.Contract(proxyAbi, proxyAddress);
+
+      const accounts = await window.ethereum.enable();
+      const myAccount = accounts[0];
+      console.log("myAccount", myAccount);
+
+      const tokenAbi = window.token.abi;
+      const token = new web3.eth.Contract(tokenAbi, proxyAddress);
+
+      let tt = await web3.utils.asciiToHex("123");
+      let nr = await token.methods.authorizationState(myAccount,tt).call();
+      console.log("nonce result",nr);
+
+      myAddress.innerText = myAccount;
+
+      sign.onclick = async () => {
+        const _contractAdress = proxyAddress;
+        const _from = myAccount;
+        //const _nonce = "0x3000000000000000000000000000000000000000000000000000000000000000";
+        const _nonce = await web3.utils.asciiToHex(nonce.value);
+        const _name = await token.methods.name().call();
+        const _chainId = web3.currentProvider.networkVersion;
+        const msgParams = createMessageSig(_name, "2", _chainId, _contractAdress, _from, _nonce);
+
+        web3.currentProvider.sendAsync({
+          method: 'eth_signTypedData_v4',
+          params: [ myAccount, msgParams ],
+          from: myAccount
+        }, async (err, result) => {
+          if (err) {
+            console.error('ERROR', err);
+            alert(err);
+            return;
+          } else if (result.error) {
+            console.error('ERROR', result.error.message);
+            alert(result.error.message);
+            return;
+          }
+
+          //
+          p_fromAddrss.value = myAccount;
+          p_nonce.value = _nonce;
+          const sig = result.result;
+          p_signature.value = sig;
+
+          console.log('signature', sig);
+          console.log('msgParams', JSON.parse(msgParams));
+        });
+      };
+
+      delegate.onclick = async () => {
+
+        const sig = p_signature.value;
+
+        const r = '0x' + sig.substring(2).substring(0, 64);
+        const s = '0x' + sig.substring(2).substring(64, 128);
+        const v = '0x' + sig.substring(2).substring(128, 130);
+
+        console.log('v', v);
+        console.log('r', r);
+        console.log('s', s);
+        //const nonceByte32 = await web3.utils.asciiToHex(p_nonce.value);
+        const nonceBytes32 =  p_nonce.value;
+        console.log("nonceByte32:   ", nonceBytes32);
+
+        try{
+          const tx = await token.methods.cancelAuthorization(
+            p_fromAddrss.value,
+            nonceBytes32,
+            v, r, s).send({
+            from: myAccount,
+            gasLimit: web3.utils.toHex(1000000),
+            gasPrice: web3.utils.toHex(25000000000),
+          });
+
+          txStatus.innerText = tx.status;
+
+          const linkstr = "https://ropsten.etherscan.io/tx/" + tx.transactionHash;
+          txHash.innerHTML = `<a href=${linkstr} target='_blank'> Check in Etherscan</a>`;
+
+        }catch(error){
+          console.log("error:\n", error);
+          txStatus.innerText = "false";
+          //var strs = error.indexOf("transactionHash");
+          //const linkstre = "https://ropsten.etherscan.io/tx/" + error.substring(str+18,66);
+          //txHash.innerHTML = `<a href=${linkstre} target='_blank'> Check in Etherscan</a>`;
+          txHash.innerHTML = error;
+        }
+
+        //end
+      };
+    }
+  });
+</script>
+
+</html>
